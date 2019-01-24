@@ -407,6 +407,126 @@ class MemoryStoreSuite
     assert(memoryStore.getSize(blockId) === 10000)
   }
 
+  test("two threads put ByteBuffer to MemoryStore one after another") {
+    val (memoryStore, blockInfoManager) = makeMemoryStore(12000)
+    val blockId1 = BlockId("rdd_3_1")
+    val blockId2 = BlockId("rdd_5_2")
+
+    import java.util.concurrent.{Executors, ExecutorService, CountDownLatch}
+    val latch: CountDownLatch = new CountDownLatch(2)
+    val threadPool: ExecutorService = Executors.newFixedThreadPool(2)
+    try {
+      threadPool.execute(new Runnable{
+        override def run(): Unit = {
+          var bytes: ChunkedByteBuffer = null
+          // scalastyle:off println
+          println(System.currentTimeMillis() + " : task 1 start")
+          println(System.currentTimeMillis() + " : task 1 begin putBytes")
+          blockInfoManager.lockNewBlockForWriting(
+            blockId1, new BlockInfo(StorageLevel.MEMORY_ONLY, ClassTag.Any, tellMaster = false))
+          memoryStore.putBytes(blockId1, 10000, MemoryMode.ON_HEAP, () => {
+            bytes = new ChunkedByteBuffer(ByteBuffer.allocate(10000))
+            bytes
+          })
+          blockInfoManager.unlock(blockId1)
+          println(System.currentTimeMillis() + " : task 1 finish putBytes")
+          assert(memoryStore.getSize(blockId1) === 10000)
+          assert(!memoryStore.contains(blockId2))
+          println(System.currentTimeMillis() + " : task 1 assert finish")
+          // scalastyle:on
+          latch.countDown
+        }
+      })
+
+      threadPool.execute(new Runnable{
+        override def run(): Unit = {
+          var bytes: ChunkedByteBuffer = null
+          // scalastyle:off println
+          println(System.currentTimeMillis() + " : task 2 start")
+          Thread.sleep(30000L)
+          assert(memoryStore.contains(blockId1))
+          println(System.currentTimeMillis() + " : task 2 begin putBytes")
+          blockInfoManager.lockNewBlockForWriting(
+            blockId2, new BlockInfo(StorageLevel.MEMORY_ONLY, ClassTag.Any, tellMaster = false))
+          memoryStore.putBytes(blockId2, 10000, MemoryMode.ON_HEAP, () => {
+            bytes = new ChunkedByteBuffer(ByteBuffer.allocate(10000))
+            bytes
+          })
+          blockInfoManager.unlock(blockId2)
+          println(System.currentTimeMillis() + " : task 2 finish putBytes")
+          assert(!memoryStore.contains(blockId1))
+          assert(memoryStore.contains(blockId2))
+          assert(memoryStore.getSize(blockId2) === 10000)
+          println(System.currentTimeMillis() + " : task 2 assert finish")
+          // scalastyle:on println
+          latch.countDown
+        }
+      })
+    } finally {
+      threadPool.shutdown()
+    }
+    latch.await()
+  }
+
+  test("two threads put ByteBuffer to MemoryStore concurrently") {
+    val (memoryStore, blockInfoManager) = makeMemoryStore(12000)
+    val blockId1 = BlockId("rdd_3_1")
+    val blockId2 = BlockId("rdd_5_2")
+
+    import java.util.concurrent.{Executors, ExecutorService, CountDownLatch}
+    val latch: CountDownLatch = new CountDownLatch(2)
+    val threadPool: ExecutorService = Executors.newFixedThreadPool(2)
+    try {
+      threadPool.execute(new Runnable{
+        override def run(): Unit = {
+          var bytes: ChunkedByteBuffer = null
+          // scalastyle:off println
+          println(System.currentTimeMillis() + " : task 1 start")
+          println(System.currentTimeMillis() + " : task 1 begin putBytes")
+          blockInfoManager.lockNewBlockForWriting(
+            blockId1, new BlockInfo(StorageLevel.MEMORY_ONLY, ClassTag.Any, tellMaster = false))
+          memoryStore.putBytes(blockId1, 10000, MemoryMode.ON_HEAP, () => {
+            bytes = new ChunkedByteBuffer(ByteBuffer.allocate(10000))
+            bytes
+          })
+          blockInfoManager.unlock(blockId1)
+          println(System.currentTimeMillis() + " : task 1 finish putBytes")
+          assert(memoryStore.getSize(blockId1) === 10000)
+          assert(!memoryStore.contains(blockId2))
+          println(System.currentTimeMillis() + " : task 1 assert finish")
+          // scalastyle:on
+          latch.countDown
+        }
+      })
+
+      threadPool.execute(new Runnable{
+        override def run(): Unit = {
+          var bytes: ChunkedByteBuffer = null
+          // scalastyle:off println
+          println(System.currentTimeMillis() + " : task 2 start")
+          Thread.sleep(10000L)  // wait for task1 acquiring memory
+          println(System.currentTimeMillis() + " : task 2 begin putBytes")
+          blockInfoManager.lockNewBlockForWriting(
+            blockId2, new BlockInfo(StorageLevel.MEMORY_ONLY, ClassTag.Any, tellMaster = false))
+          memoryStore.putBytes(blockId2, 10000, MemoryMode.ON_HEAP, () => {
+            bytes = new ChunkedByteBuffer(ByteBuffer.allocate(10000))
+            bytes
+          })
+          blockInfoManager.unlock(blockId2)
+          println(System.currentTimeMillis() + " : task 2 finish putBytes")
+          assert(!memoryStore.contains(blockId1))
+          assert(!memoryStore.contains(blockId2))
+          println(System.currentTimeMillis() + " : task 2 assert finish")
+          // scalastyle:on println
+          latch.countDown
+        }
+      })
+    } finally {
+      threadPool.shutdown()
+    }
+    latch.await()
+  }
+
   test("SPARK-22083: Release all locks in evictBlocksToFreeSpace") {
     // Setup a memory store with many blocks cached, and then one request which leads to multiple
     // blocks getting evicted.  We'll make the eviction throw an exception, and make sure that

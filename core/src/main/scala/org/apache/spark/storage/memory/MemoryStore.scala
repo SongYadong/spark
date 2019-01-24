@@ -147,6 +147,11 @@ private[spark] class MemoryStore(
       _bytes: () => ChunkedByteBuffer): Boolean = {
     require(!contains(blockId), s"Block $blockId is already present in the MemoryStore")
     if (memoryManager.acquireStorageMemory(blockId, size, memoryMode)) {
+      // scalastyle:off println
+      println(System.currentTimeMillis() + " : putBytes() enter sleep after acquired memory")
+      Thread.sleep(20000L)  // wait for another thread to get memoryManager lock
+      println(System.currentTimeMillis() + " : putBytes() leave sleep")
+      // scalastyle:on println
       // We acquired enough memory for the block, so go ahead and put it
       val bytes = _bytes()
       assert(bytes.size == size)
@@ -447,6 +452,10 @@ private[spark] class MemoryStore(
       // (because of getValue or getBytes) while traversing the iterator, as that
       // can lead to exceptions.
       entries.synchronized {
+        // scalastyle:off println
+        println(System.currentTimeMillis() +
+          " : evictBlocksToFreeSpace(): before eviction: entries.size: " + entries.size())
+        // scalastyle:on println
         val iterator = entries.entrySet().iterator()
         while (freedMemory < space && iterator.hasNext) {
           val pair = iterator.next()
