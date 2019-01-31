@@ -181,6 +181,53 @@ private[spark] abstract class MemoryManager(
       offHeapExecutionMemoryPool.getMemoryUsageForTask(taskAttemptId)
   }
 
+  /**
+   * Gets maxOffHeapMemory for metrics
+   */
+  private[memory] def getMaxOffHeapMemory(): Long = synchronized {
+    maxOffHeapMemory
+  }
+
+  private[memory] def getOffHeapStorageRegionSize(): Long = synchronized {
+    offHeapStorageMemory
+  }
+
+  private[memory] def getOnHeapStorageRegionSize(): Long = synchronized {
+    onHeapStorageMemory
+  }
+
+  private[memory] def getOnHeapStorageUsed(): Long = synchronized {
+    onHeapStorageMemoryPool.memoryUsed
+  }
+
+  private[memory] def getOnHeapStorageFree(): Long = synchronized {
+    onHeapStorageMemoryPool.memoryFree
+  }
+
+  private[memory] def getOnHeapExecutionUsed(): Long = synchronized {
+    onHeapExecutionMemoryPool.memoryUsed
+  }
+
+  private[memory] def getOnHeapExecutionFree(): Long = synchronized {
+    onHeapExecutionMemoryPool.memoryFree
+  }
+
+  private[memory] def getOffHeapStorageUsed(): Long = synchronized {
+    offHeapStorageMemoryPool.memoryUsed
+  }
+
+  private[memory] def getOffHeapStorageFree(): Long = synchronized {
+    offHeapStorageMemoryPool.memoryFree
+  }
+
+  private[memory] def getOffHeapExecutionUsed(): Long = synchronized {
+    offHeapExecutionMemoryPool.memoryUsed
+  }
+
+  private[memory] def getOffHeapExecutionFree(): Long = synchronized {
+    offHeapExecutionMemoryPool.memoryFree
+  }
+
   // -- Fields related to Tungsten managed memory -------------------------------------------------
 
   /**

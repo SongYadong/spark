@@ -32,7 +32,7 @@ import scala.util.control.NonFatal
 import org.apache.spark._
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.memory.TaskMemoryManager
+import org.apache.spark.memory.{MemoryManagerSource, TaskMemoryManager}
 import org.apache.spark.rpc.RpcTimeout
 import org.apache.spark.scheduler.{AccumulableInfo, DirectTaskResult, IndirectTaskResult, Task}
 import org.apache.spark.shuffle.FetchFailedException
@@ -84,6 +84,7 @@ private[spark] class Executor(
   // Start worker thread pool
   private val threadPool = ThreadUtils.newDaemonCachedThreadPool("Executor task launch worker")
   private val executorSource = new ExecutorSource(threadPool, executorId)
+  private val memoryManagerSource = new MemoryManagerSource(env.memoryManager, conf)
 
   if (!isLocal) {
     env.metricsSystem.registerSource(executorSource)
