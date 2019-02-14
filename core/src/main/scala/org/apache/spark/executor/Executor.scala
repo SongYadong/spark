@@ -88,6 +88,7 @@ private[spark] class Executor(
 
   if (!isLocal) {
     env.metricsSystem.registerSource(executorSource)
+    env.metricsSystem.registerSource(memoryManagerSource)
     env.blockManager.initialize(conf.getAppId)
   }
 
