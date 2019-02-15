@@ -112,6 +112,11 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
     override def getValue: Long = memoryMXBean.getHeapMemoryUsage().getUsed()
   })
 
+  metricRegistry.register(MetricRegistry.name("MXBeanHeapMemoryUsageMax"), new Gauge[Long] {
+    val memoryMXBean: MemoryMXBean = ManagementFactory.getMemoryMXBean()
+    override def getValue: Long = memoryMXBean.getHeapMemoryUsage().getMax()
+  })
+
   // Get jvm mem:
   // Runtime.getRuntime.maxMemory
   // MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean()
