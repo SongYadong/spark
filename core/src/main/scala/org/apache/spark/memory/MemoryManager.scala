@@ -228,6 +228,88 @@ private[spark] abstract class MemoryManager(
     offHeapExecutionMemoryPool.memoryFree
   }
 
+  // -- execution memory spilling stats -----------------------------------------------------------
+  var acquiredExecutionBytes: Long = 0L
+  var spilledTimes: Long = 0L
+  var spilledBytes: Long = 0L
+  val spillCountLock: Object = new Object()
+
+  private[memory] def increaseAcquiredBytes(numBytes: Long): Unit = spillCountLock.synchronized {
+    acquiredExecutionBytes += numBytes
+  }
+
+  private[memory] def increaseSpilledTimes(): Unit = spillCountLock.synchronized {
+    spilledTimes += 1
+  }
+
+  private[memory] def increaseSpilledBytes(numBytes: Long): Unit = spillCountLock.synchronized {
+    spilledBytes += numBytes
+  }
+
+  private[memory] def getAcquiredBytes(): Long = spillCountLock.synchronized {
+    acquiredExecutionBytes
+  }
+
+  private[memory] def getSpilledTimes(): Long = spillCountLock.synchronized {
+    spilledTimes
+  }
+
+  private[memory] def getSpilledBytes(): Long = spillCountLock.synchronized {
+    spilledBytes
+  }
+
+  private[memory] def getSpilledPercent(): Long = spillCountLock.synchronized {
+    spilledBytes * 100 / acquiredExecutionBytes
+  }
+
+  // -- storage memory block stats ----------------------------------------------------------------
+  var putBlockNum = 0L
+  var putBlockBytes = 0L
+  var evictBlockNum = 0L
+  var evictBlockBytes = 0L
+  val putAndEvictLock = new Object()
+
+  private[spark] def increasePutBlockBytes(numBytes: Long): Unit = putAndEvictLock.synchronized {
+    putBlockBytes += numBytes
+  }
+
+  private[spark] def increasePutBlockNum(): Unit = putAndEvictLock.synchronized {
+    putBlockNum += 1
+  }
+
+  private[spark] def increaseEvictBlockBytes(numBytes: Long): Unit = putAndEvictLock.synchronized {
+    evictBlockBytes += numBytes
+  }
+
+  private[spark] def increaseEvictBlockNum(): Unit = putAndEvictLock.synchronized {
+    evictBlockNum += 1
+  }
+
+  private[memory] def getPutBlockNum(): Long = putAndEvictLock.synchronized {
+    putBlockNum
+  }
+
+  private[memory] def getPutBlockBytes(): Long = putAndEvictLock.synchronized {
+    putBlockBytes
+  }
+
+  private[memory] def getEvictBlockNum(): Long = putAndEvictLock.synchronized {
+    evictBlockNum
+  }
+
+  private[memory] def getEvictBlockBytes(): Long = putAndEvictLock.synchronized {
+    evictBlockBytes
+  }
+
+  private[memory] def getEvictBlockNumPercent(): Long = putAndEvictLock.synchronized {
+    evictBlockNum * 100 / putBlockNum
+  }
+
+  private[memory] def getEvictBlockBytesPercent(): Long = putAndEvictLock.synchronized {
+    evictBlockBytes * 100 / putBlockBytes
+  }
+
+
   // -- Fields related to Tungsten managed memory -------------------------------------------------
 
   /**

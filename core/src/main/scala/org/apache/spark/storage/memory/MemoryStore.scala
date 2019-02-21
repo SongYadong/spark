@@ -149,6 +149,8 @@ private[spark] class MemoryStore(
       val entry = new SerializedMemoryEntry[T](bytes, memoryMode, implicitly[ClassTag[T]])
       entries.synchronized {
         entries.put(blockId, entry)
+        memoryManager.increasePutBlockNum()
+        memoryManager.increasePutBlockBytes(entry.size)
       }
       logInfo("Block %s stored as bytes in memory (estimated size %s, free %s)".format(
         blockId, Utils.bytesToString(size), Utils.bytesToString(maxMemory - blocksMemoryUsed)))
@@ -266,6 +268,8 @@ private[spark] class MemoryStore(
       if (enoughStorageMemory) {
         entries.synchronized {
           entries.put(blockId, entry)
+          memoryManager.increasePutBlockNum()
+          memoryManager.increasePutBlockBytes(entry.size)
         }
         logInfo("Block %s stored as values in memory (estimated size %s, free %s)".format(
           blockId, Utils.bytesToString(size), Utils.bytesToString(maxMemory - blocksMemoryUsed)))
@@ -380,6 +384,8 @@ private[spark] class MemoryStore(
       }
       entries.synchronized {
         entries.put(blockId, entry)
+        memoryManager.increasePutBlockNum()
+        memoryManager.increasePutBlockBytes(entry.size)
       }
       logInfo("Block %s stored as bytes in memory (estimated size %s, free %s)".format(
         blockId, Utils.bytesToString(entry.size),
@@ -509,6 +515,8 @@ private[spark] class MemoryStore(
           case DeserializedMemoryEntry(values, _, _) => Left(values)
           case SerializedMemoryEntry(buffer, _, _) => Right(buffer)
         }
+        memoryManager.increaseEvictBlockNum()
+        memoryManager.increaseEvictBlockBytes(entry.size)
         val newEffectiveStorageLevel =
           blockEvictionHandler.dropFromMemory(blockId, () => data)(entry.classTag)
         if (newEffectiveStorageLevel.isValid) {

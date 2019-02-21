@@ -117,6 +117,48 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
     override def getValue: Long = memoryMXBean.getHeapMemoryUsage().getMax()
   })
 
+  // -- spill count metrics -----------------------------------------------------------------------
+  metricRegistry.register(MetricRegistry.name("acquiredExecutionBytes"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getAcquiredBytes
+  })
+
+  metricRegistry.register(MetricRegistry.name("spilledTimes"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getSpilledTimes
+  })
+
+  metricRegistry.register(MetricRegistry.name("spilledBytes"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getSpilledBytes
+  })
+
+  metricRegistry.register(MetricRegistry.name("spilledPercent"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getSpilledPercent
+  })
+
+  // -- put and evict block count metrics ---------------------------------------------------------
+  metricRegistry.register(MetricRegistry.name("putBlockNum"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getPutBlockNum
+  })
+
+  metricRegistry.register(MetricRegistry.name("putBlockBytes"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getPutBlockBytes
+  })
+
+  metricRegistry.register(MetricRegistry.name("evictBlockNum"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getEvictBlockNum
+  })
+
+  metricRegistry.register(MetricRegistry.name("evictBlockBytes"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getEvictBlockBytes
+  })
+
+  metricRegistry.register(MetricRegistry.name("evictBlockNumPercent"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getEvictBlockNumPercent
+  })
+
+  metricRegistry.register(MetricRegistry.name("evictBlockBytesPercent"), new Gauge[Long] {
+    override def getValue: Long = memoryManager.getEvictBlockBytesPercent
+  })
+
   // Get jvm mem:
   // Runtime.getRuntime.maxMemory
   // MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean()

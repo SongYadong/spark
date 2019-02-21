@@ -148,6 +148,8 @@ public class TaskMemoryManager {
           if (c != consumer && c.getUsed() > 0 && c.getMode() == mode) {
             try {
               long released = c.spill(required - got, consumer);
+              memoryManager.increaseSpilledTimes();
+              memoryManager.increaseSpilledBytes(released);
               if (released > 0) {
                 logger.debug("Task {} released {} from {} for {}", taskAttemptId,
                   Utils.bytesToString(released), c, consumer);
@@ -183,6 +185,7 @@ public class TaskMemoryManager {
 
       consumers.add(consumer);
       logger.debug("Task {} acquired {} for {}", taskAttemptId, Utils.bytesToString(got), consumer);
+      memoryManager.increaseAcquiredBytes(got);
       return got;
     }
   }
