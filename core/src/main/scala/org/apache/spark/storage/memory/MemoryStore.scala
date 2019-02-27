@@ -150,7 +150,7 @@ private[spark] class MemoryStore(
       entries.synchronized {
         entries.put(blockId, entry)
         memoryManager.increasePutBlockNum()
-        memoryManager.increasePutBlockBytes(entry.size)
+        memoryManager.increasePutBlockBytes(size)
       }
       logInfo("Block %s stored as bytes in memory (estimated size %s, free %s)".format(
         blockId, Utils.bytesToString(size), Utils.bytesToString(maxMemory - blocksMemoryUsed)))
@@ -269,7 +269,7 @@ private[spark] class MemoryStore(
         entries.synchronized {
           entries.put(blockId, entry)
           memoryManager.increasePutBlockNum()
-          memoryManager.increasePutBlockBytes(entry.size)
+          memoryManager.increasePutBlockBytes(size)
         }
         logInfo("Block %s stored as values in memory (estimated size %s, free %s)".format(
           blockId, Utils.bytesToString(size), Utils.bytesToString(maxMemory - blocksMemoryUsed)))
