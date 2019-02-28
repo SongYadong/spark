@@ -132,10 +132,6 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
     override def getValue: Long = memoryManager.getSpilledBytes
   })
 
-  metricRegistry.register(MetricRegistry.name("spilledPercent"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getSpilledPercent
-  })
-
   // -- put and evict block count metrics ---------------------------------------------------------
   metricRegistry.register(MetricRegistry.name("putBlockNum"), new Gauge[Long] {
     override def getValue: Long = memoryManager.getPutBlockNum
@@ -151,14 +147,6 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
 
   metricRegistry.register(MetricRegistry.name("evictBlockBytes"), new Gauge[Long] {
     override def getValue: Long = memoryManager.getEvictBlockBytes
-  })
-
-  metricRegistry.register(MetricRegistry.name("evictBlockNumPercent"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getEvictBlockNumPercent
-  })
-
-  metricRegistry.register(MetricRegistry.name("evictBlockBytesPercent"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getEvictBlockBytesPercent
   })
 
   // Get jvm mem:

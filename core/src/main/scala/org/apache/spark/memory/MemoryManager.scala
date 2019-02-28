@@ -238,13 +238,11 @@ private[spark] abstract class MemoryManager(
     acquiredExecutionBytes += numBytes
   }
 
-  private[memory] def increaseSpilledTimes(): Unit = spillCountLock.synchronized {
-    spilledTimes += 1
-  }
-
-  private[memory] def increaseSpilledBytes(numBytes: Long): Unit = spillCountLock.synchronized {
-    spilledBytes += numBytes
-  }
+  private[memory] def increaseSpilledTimesAndBytes(numBytes: Long): Unit =
+    spillCountLock.synchronized {
+      spilledTimes += 1
+      spilledBytes += numBytes
+    }
 
   private[memory] def getAcquiredBytes(): Long = spillCountLock.synchronized {
     acquiredExecutionBytes
@@ -256,10 +254,6 @@ private[spark] abstract class MemoryManager(
 
   private[memory] def getSpilledBytes(): Long = spillCountLock.synchronized {
     spilledBytes
-  }
-
-  private[memory] def getSpilledPercent(): Long = spillCountLock.synchronized {
-    spilledBytes * 100 / acquiredExecutionBytes
   }
 
   // -- storage memory block stats ----------------------------------------------------------------
@@ -299,14 +293,6 @@ private[spark] abstract class MemoryManager(
 
   private[memory] def getEvictBlockBytes(): Long = putAndEvictLock.synchronized {
     evictBlockBytes
-  }
-
-  private[memory] def getEvictBlockNumPercent(): Long = putAndEvictLock.synchronized {
-    evictBlockNum * 100 / putBlockNum
-  }
-
-  private[memory] def getEvictBlockBytesPercent(): Long = putAndEvictLock.synchronized {
-    evictBlockBytes * 100 / putBlockBytes
   }
 
 
