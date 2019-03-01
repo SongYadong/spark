@@ -224,6 +224,10 @@ object UnifiedMemoryManager {
     }
     val usableMemory = systemMemory - reservedMemory
     val memoryFraction = conf.getDouble("spark.memory.fraction", 0.6)
+    // scalastyle:off println
+    println(s"usableMemory:$usableMemory, systemMemory:$systemMemory, " +
+      s"reservedMemory:$reservedMemory, memoryFraction:$memoryFraction")
+    // scalastyle:on println
     (usableMemory * memoryFraction).toLong
   }
 }

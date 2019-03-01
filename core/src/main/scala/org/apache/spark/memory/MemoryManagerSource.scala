@@ -34,28 +34,16 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
 
   val memoryFraction = conf.getDouble("spark.memory.fraction", 0.6)
 
-  val runtimeMaxMemory = Runtime.getRuntime.maxMemory
-
-  val usableMemory = runtimeMaxMemory - 300 * 1024 * 1024L
-
   metricRegistry.register(MetricRegistry.name("systemMemory"), new Gauge[Long] {
-    override def getValue: Long = runtimeMaxMemory
+    override def getValue: Long = Runtime.getRuntime.maxMemory
   })
 
   metricRegistry.register(MetricRegistry.name("usableMemory"), new Gauge[Long] {
-    override def getValue: Long = usableMemory
+    override def getValue: Long = Runtime.getRuntime.maxMemory - 300 * 1024 * 1024L
   })
 
   metricRegistry.register(MetricRegistry.name("maxHeapMemory"), new Gauge[Long] {
     override def getValue: Long = memoryManager.asInstanceOf[UnifiedMemoryManager].maxHeapMemory
-  })
-
-  metricRegistry.register(MetricRegistry.name("maxOffHeapMemory"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getMaxOffHeapMemory
-  })
-
-  metricRegistry.register(MetricRegistry.name("offHeapStorageRegionSize"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getOffHeapStorageRegionSize
   })
 
   metricRegistry.register(MetricRegistry.name("onHeapStorageRegionSize"), new Gauge[Long] {
@@ -82,32 +70,17 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
     override def getValue: Long = memoryManager.getOnHeapExecutionFree
   })
 
-  metricRegistry.register(MetricRegistry.name("offHeapStorageUsed"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getOffHeapStorageUsed
-  })
-
-  metricRegistry.register(MetricRegistry.name("offHeapStorageFree"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getOffHeapStorageFree
-  })
-
-  metricRegistry.register(MetricRegistry.name("offHeapExecutionUsed"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getOffHeapExecutionUsed
-  })
-
-  metricRegistry.register(MetricRegistry.name("offHeapExecutionFree"), new Gauge[Long] {
-    override def getValue: Long = memoryManager.getOffHeapExecutionFree
-  })
-
   metricRegistry.register(MetricRegistry.name("otherMemoryTotal"), new Gauge[Long] {
     override def getValue: Long =
-      (usableMemory * (1.0 - memoryFraction)).toLong + 300 * 1024 * 1024L
+      ((Runtime.getRuntime.maxMemory - 300 * 1024 * 1024L) * (1.0 - memoryFraction)).toLong +
+      300 * 1024 * 1024L
   })
 
   metricRegistry.register(MetricRegistry.name("otherMemoryFree"), new Gauge[Long] {
     val memoryMXBean: MemoryMXBean = ManagementFactory.getMemoryMXBean()
-    val heapUsed = memoryMXBean.getHeapMemoryUsage().getUsed()
-    override def getValue: Long = (runtimeMaxMemory - heapUsed) -
-      (memoryManager.getOnHeapStorageFree + memoryManager.getOnHeapExecutionFree)
+    override def getValue: Long = Runtime.getRuntime.maxMemory -
+      memoryMXBean.getHeapMemoryUsage().getUsed() -
+      memoryManager.getOnHeapStorageFree - memoryManager.getOnHeapExecutionFree
   })
 
   metricRegistry.register(MetricRegistry.name("MXBeanHeapMemoryUsageUsed"), new Gauge[Long] {
@@ -149,6 +122,30 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
   metricRegistry.register(MetricRegistry.name("evictBlockBytes"), new Gauge[Long] {
     override def getValue: Long = memoryManager.getEvictBlockBytes
   })
+
+//  metricRegistry.register(MetricRegistry.name("maxOffHeapMemory"), new Gauge[Long] {
+//    override def getValue: Long = memoryManager.getMaxOffHeapMemory
+//  })
+//
+//  metricRegistry.register(MetricRegistry.name("offHeapStorageRegionSize"), new Gauge[Long] {
+//    override def getValue: Long = memoryManager.getOffHeapStorageRegionSize
+//  })
+//
+//  metricRegistry.register(MetricRegistry.name("offHeapStorageUsed"), new Gauge[Long] {
+//    override def getValue: Long = memoryManager.getOffHeapStorageUsed
+//  })
+//
+//  metricRegistry.register(MetricRegistry.name("offHeapStorageFree"), new Gauge[Long] {
+//    override def getValue: Long = memoryManager.getOffHeapStorageFree
+//  })
+//
+//  metricRegistry.register(MetricRegistry.name("offHeapExecutionUsed"), new Gauge[Long] {
+//    override def getValue: Long = memoryManager.getOffHeapExecutionUsed
+//  })
+//
+//  metricRegistry.register(MetricRegistry.name("offHeapExecutionFree"), new Gauge[Long] {
+//    override def getValue: Long = memoryManager.getOffHeapExecutionFree
+//  })
 
   // Get jvm mem:
   // Runtime.getRuntime.maxMemory
