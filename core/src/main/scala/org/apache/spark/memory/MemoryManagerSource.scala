@@ -32,18 +32,35 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
 
   override val sourceName = "memory_manager"
 
-  val memoryFraction = conf.getDouble("spark.memory.fraction", 0.6)
+  val memoryFraction: Double = conf.getDouble("spark.memory.fraction", 0.6)
+  val reservedMemory: Long = 300 * 1024 * 1024L
 
   metricRegistry.register(MetricRegistry.name("systemMemory"), new Gauge[Long] {
-    override def getValue: Long = Runtime.getRuntime.maxMemory
+    override def getValue: Long = reservedMemory +
+      (memoryManager.asInstanceOf[UnifiedMemoryManager].maxHeapMemory / memoryFraction).toLong
   })
 
   metricRegistry.register(MetricRegistry.name("usableMemory"), new Gauge[Long] {
-    override def getValue: Long = Runtime.getRuntime.maxMemory - 300 * 1024 * 1024L
+    override def getValue: Long =
+      (memoryManager.asInstanceOf[UnifiedMemoryManager].maxHeapMemory / memoryFraction).toLong
   })
 
   metricRegistry.register(MetricRegistry.name("maxHeapMemory"), new Gauge[Long] {
     override def getValue: Long = memoryManager.asInstanceOf[UnifiedMemoryManager].maxHeapMemory
+  })
+
+  metricRegistry.register(MetricRegistry.name("otherMemoryTotal"), new Gauge[Long] {
+    val usableMemory: Long =
+      (memoryManager.asInstanceOf[UnifiedMemoryManager].maxHeapMemory / memoryFraction).toLong
+    override def getValue: Long = (usableMemory * (1.0 - memoryFraction)).toLong + reservedMemory
+  })
+
+  metricRegistry.register(MetricRegistry.name("otherMemoryFree"), new Gauge[Long] {
+    val memoryMXBean: MemoryMXBean = ManagementFactory.getMemoryMXBean()
+    val runtimeMaxMemory: Long = reservedMemory +
+      (memoryManager.asInstanceOf[UnifiedMemoryManager].maxHeapMemory / memoryFraction).toLong
+    override def getValue: Long = runtimeMaxMemory - memoryMXBean.getHeapMemoryUsage().getUsed() -
+      memoryManager.getOnHeapStorageFree - memoryManager.getOnHeapExecutionFree
   })
 
   metricRegistry.register(MetricRegistry.name("onHeapStorageRegionSize"), new Gauge[Long] {
@@ -68,19 +85,6 @@ class MemoryManagerSource(val memoryManager: MemoryManager, conf: SparkConf)
 
   metricRegistry.register(MetricRegistry.name("onHeapExecutionFree"), new Gauge[Long] {
     override def getValue: Long = memoryManager.getOnHeapExecutionFree
-  })
-
-  metricRegistry.register(MetricRegistry.name("otherMemoryTotal"), new Gauge[Long] {
-    override def getValue: Long =
-      ((Runtime.getRuntime.maxMemory - 300 * 1024 * 1024L) * (1.0 - memoryFraction)).toLong +
-      300 * 1024 * 1024L
-  })
-
-  metricRegistry.register(MetricRegistry.name("otherMemoryFree"), new Gauge[Long] {
-    val memoryMXBean: MemoryMXBean = ManagementFactory.getMemoryMXBean()
-    override def getValue: Long = Runtime.getRuntime.maxMemory -
-      memoryMXBean.getHeapMemoryUsage().getUsed() -
-      memoryManager.getOnHeapStorageFree - memoryManager.getOnHeapExecutionFree
   })
 
   metricRegistry.register(MetricRegistry.name("MXBeanHeapMemoryUsageUsed"), new Gauge[Long] {
