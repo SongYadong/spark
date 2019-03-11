@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-import java.lang.management.{ManagementFactory, MemoryMXBean}
 
 // scalastyle:off println
 package org.apache.spark.examples
+
+import java.lang.management.{ManagementFactory, MemoryMXBean}
 
 object LocalMemoryMXBean {
   def main(args: Array[String]) {
