@@ -110,6 +110,20 @@ private[spark] abstract class MemoryManager(
       taskAttemptId: Long,
       memoryMode: MemoryMode): Long
 
+  @GuardedBy("this")
+  private[spark] var releasedFlag = false
+  def setReleasedFlag(flag: Boolean): Unit = synchronized {
+    releasedFlag = flag
+  }
+
+  def getReleasedFlag(): Boolean = synchronized {
+    releasedFlag
+  }
+
+  def getOnHeapStorageMemoryPool: StorageMemoryPool = synchronized {
+    onHeapStorageMemoryPool
+  }
+
   /**
    * Release numBytes of execution memory belonging to the given task.
    */
@@ -122,6 +136,7 @@ private[spark] abstract class MemoryManager(
       case MemoryMode.ON_HEAP => onHeapExecutionMemoryPool.releaseMemory(numBytes, taskAttemptId)
       case MemoryMode.OFF_HEAP => offHeapExecutionMemoryPool.releaseMemory(numBytes, taskAttemptId)
     }
+    setReleasedFlag(true)
   }
 
   /**
@@ -130,6 +145,7 @@ private[spark] abstract class MemoryManager(
    * @return the number of bytes freed.
    */
   private[memory] def releaseAllExecutionMemoryForTask(taskAttemptId: Long): Long = synchronized {
+    setReleasedFlag(true)
     onHeapExecutionMemoryPool.releaseAllMemoryForTask(taskAttemptId) +
       offHeapExecutionMemoryPool.releaseAllMemoryForTask(taskAttemptId)
   }
@@ -142,6 +158,7 @@ private[spark] abstract class MemoryManager(
       case MemoryMode.ON_HEAP => onHeapStorageMemoryPool.releaseMemory(numBytes)
       case MemoryMode.OFF_HEAP => offHeapStorageMemoryPool.releaseMemory(numBytes)
     }
+    setReleasedFlag(true)
   }
 
   /**
@@ -150,6 +167,7 @@ private[spark] abstract class MemoryManager(
   final def releaseAllStorageMemory(): Unit = synchronized {
     onHeapStorageMemoryPool.releaseAllMemory()
     offHeapStorageMemoryPool.releaseAllMemory()
+    setReleasedFlag(true)
   }
 
   /**
@@ -184,47 +202,47 @@ private[spark] abstract class MemoryManager(
   /**
    * Gets maxOffHeapMemory for metrics
    */
-  private[memory] def getMaxOffHeapMemory(): Long = synchronized {
+  private[spark] def getMaxOffHeapMemory(): Long = synchronized {
     maxOffHeapMemory
   }
 
-  private[memory] def getOffHeapStorageRegionSize(): Long = synchronized {
+  private[spark] def getOffHeapStorageRegionSize(): Long = synchronized {
     offHeapStorageMemory
   }
 
-  private[memory] def getOnHeapStorageRegionSize(): Long = synchronized {
+  private[spark] def getOnHeapStorageRegionSize(): Long = synchronized {
     onHeapStorageMemory
   }
 
-  private[memory] def getOnHeapStorageUsed(): Long = synchronized {
+  private[spark] def getOnHeapStorageUsed(): Long = synchronized {
     onHeapStorageMemoryPool.memoryUsed
   }
 
-  private[memory] def getOnHeapStorageFree(): Long = synchronized {
+  private[spark] def getOnHeapStorageFree(): Long = synchronized {
     onHeapStorageMemoryPool.memoryFree
   }
 
-  private[memory] def getOnHeapExecutionUsed(): Long = synchronized {
+  private[spark] def getOnHeapExecutionUsed(): Long = synchronized {
     onHeapExecutionMemoryPool.memoryUsed
   }
 
-  private[memory] def getOnHeapExecutionFree(): Long = synchronized {
+  private[spark] def getOnHeapExecutionFree(): Long = synchronized {
     onHeapExecutionMemoryPool.memoryFree
   }
 
-  private[memory] def getOffHeapStorageUsed(): Long = synchronized {
+  private[spark] def getOffHeapStorageUsed(): Long = synchronized {
     offHeapStorageMemoryPool.memoryUsed
   }
 
-  private[memory] def getOffHeapStorageFree(): Long = synchronized {
+  private[spark] def getOffHeapStorageFree(): Long = synchronized {
     offHeapStorageMemoryPool.memoryFree
   }
 
-  private[memory] def getOffHeapExecutionUsed(): Long = synchronized {
+  private[spark] def getOffHeapExecutionUsed(): Long = synchronized {
     offHeapExecutionMemoryPool.memoryUsed
   }
 
-  private[memory] def getOffHeapExecutionFree(): Long = synchronized {
+  private[spark] def getOffHeapExecutionFree(): Long = synchronized {
     offHeapExecutionMemoryPool.memoryFree
   }
 
@@ -234,25 +252,25 @@ private[spark] abstract class MemoryManager(
   var spilledBytes: Long = 0L
   val spillCountLock: Object = new Object()
 
-  private[memory] def increaseAcquiredBytes(numBytes: Long): Unit = spillCountLock.synchronized {
+  private[spark] def increaseAcquiredBytes(numBytes: Long): Unit = spillCountLock.synchronized {
     acquiredExecutionBytes += numBytes
   }
 
-  private[memory] def increaseSpilledTimesAndBytes(numBytes: Long): Unit =
+  private[spark] def increaseSpilledTimesAndBytes(numBytes: Long): Unit =
     spillCountLock.synchronized {
       spilledTimes += 1
       spilledBytes += numBytes
     }
 
-  private[memory] def getAcquiredBytes(): Long = spillCountLock.synchronized {
+  private[spark] def getAcquiredBytes(): Long = spillCountLock.synchronized {
     acquiredExecutionBytes
   }
 
-  private[memory] def getSpilledTimes(): Long = spillCountLock.synchronized {
+  private[spark] def getSpilledTimes(): Long = spillCountLock.synchronized {
     spilledTimes
   }
 
-  private[memory] def getSpilledBytes(): Long = spillCountLock.synchronized {
+  private[spark] def getSpilledBytes(): Long = spillCountLock.synchronized {
     spilledBytes
   }
 
@@ -279,19 +297,19 @@ private[spark] abstract class MemoryManager(
     evictBlockNum += 1
   }
 
-  private[memory] def getPutBlockNum(): Long = putAndEvictLock.synchronized {
+  private[spark] def getPutBlockNum(): Long = putAndEvictLock.synchronized {
     putBlockNum
   }
 
-  private[memory] def getPutBlockBytes(): Long = putAndEvictLock.synchronized {
+  private[spark] def getPutBlockBytes(): Long = putAndEvictLock.synchronized {
     putBlockBytes
   }
 
-  private[memory] def getEvictBlockNum(): Long = putAndEvictLock.synchronized {
+  private[spark] def getEvictBlockNum(): Long = putAndEvictLock.synchronized {
     evictBlockNum
   }
 
-  private[memory] def getEvictBlockBytes(): Long = putAndEvictLock.synchronized {
+  private[spark] def getEvictBlockBytes(): Long = putAndEvictLock.synchronized {
     evictBlockBytes
   }
 

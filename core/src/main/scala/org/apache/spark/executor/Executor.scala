@@ -18,7 +18,7 @@
 package org.apache.spark.executor
 
 import java.io.{File, NotSerializableException}
-import java.lang.management.ManagementFactory
+import java.lang.management.{ManagementFactory, MemoryMXBean}
 import java.net.URL
 import java.nio.ByteBuffer
 import java.util.Properties
@@ -28,11 +28,10 @@ import javax.annotation.concurrent.GuardedBy
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, HashMap}
 import scala.util.control.NonFatal
-
 import org.apache.spark._
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.memory.{MemoryManagerSource, TaskMemoryManager}
+import org.apache.spark.memory.{MemoryManagerSource, StorageMemoryPool, TaskMemoryManager, UnifiedMemoryManager}
 import org.apache.spark.rpc.RpcTimeout
 import org.apache.spark.scheduler.{AccumulableInfo, DirectTaskResult, IndirectTaskResult, Task}
 import org.apache.spark.shuffle.FetchFailedException
@@ -118,6 +117,9 @@ private[spark] class Executor(
   // Executor for the heartbeat task.
   private val heartbeater = ThreadUtils.newDaemonSingleThreadScheduledExecutor("driver-heartbeater")
 
+  // Executor for the memory monitor task.
+  private val memoryMonitor = ThreadUtils.newDaemonSingleThreadScheduledExecutor("memory-monitor")
+
   // must be initialized before running startDriverHeartbeat()
   private val heartbeatReceiverRef =
     RpcUtils.makeDriverRef(HeartbeatReceiver.ENDPOINT_NAME, conf, env.rpcEnv)
@@ -136,6 +138,8 @@ private[spark] class Executor(
   private var heartbeatFailures = 0
 
   startDriverHeartbeater()
+
+  startMemoryMonitor()
 
   def launchTask(
       context: ExecutorBackend,
@@ -549,6 +553,93 @@ private[spark] class Executor(
       override def run(): Unit = Utils.logUncaughtExceptions(reportHeartBeat())
     }
     heartbeater.scheduleAtFixedRate(heartbeatTask, initialDelay, intervalMs, TimeUnit.MILLISECONDS)
+  }
+
+  private def startMemoryMonitor(): Unit = {
+    val storageFraction: Double = conf.getDouble("spark.memory.storageFraction", 0.5)
+    val memoryFraction: Double = conf.getDouble("spark.memory.fraction", 0.6)
+    // spark.memory.otherBorrowThreshold must > value which relative with runtimeMaxMemory
+    val otherBorrowThreshold: Long =
+      (conf.getDouble("spark.memory.otherBorrowThreshold", 0.3) * 100).toLong
+    val monitorInterval: Long = conf.getLong("spark.memory.monitorInterval", 10000)
+    val reservedMemory: Long = 300 * 1024 * 1024L
+    val memoryMXBean: MemoryMXBean = ManagementFactory.getMemoryMXBean()
+    val mm = env.memoryManager
+    val usableMemory = (mm.getOnHeapStorageRegionSize / storageFraction / memoryFraction).toLong
+    val runtimeMaxMemory: Long = reservedMemory + usableMemory
+    val otherMemoryTotal = (usableMemory * (1.0 - memoryFraction)).toLong + reservedMemory
+    var oldOhterPercent = 0L
+    var otherBorrowed = false
+    var maxHeapMemory = (mm.getOnHeapStorageRegionSize / storageFraction).toLong
+
+    val memoryMonitorTask = new Runnable() {
+      override def run(): Unit = {
+        val startTime = System.currentTimeMillis()
+
+        if (mm.getReleasedFlag) {
+          System.gc()
+          mm.setReleasedFlag(false)
+        }
+
+        val otherFreeBytes = runtimeMaxMemory - memoryMXBean.getHeapMemoryUsage().getUsed() -
+          mm.getOnHeapStorageFree - mm.getOnHeapExecutionFree
+
+        val otherFreePercent = otherFreeBytes * 100 / otherMemoryTotal
+
+        if (otherFreePercent != oldOhterPercent) {
+          try {
+            // when other free percent changed, do something; do nothing otherwise
+            if (otherFreePercent < otherBorrowThreshold) {
+              if (otherBorrowed) {
+                // give back all the borrowed memory and shrink the storage pool
+                val borrowedBytes = mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
+                  usableMemory * memoryFraction
+                val freedSpace =
+                  mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(borrowedBytes.toLong)
+                mm.getOnHeapStorageMemoryPool.decrementPoolSize(freedSpace)
+                maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].decMaxHeapMemory(freedSpace)
+                otherBorrowed = false
+              } else {
+                // Not borrowed. Do nothing and continue monitoring
+              }
+            } else {
+              if (otherFreePercent > oldOhterPercent) {
+                // grow the storage pool
+                val canGrowBytes = otherMemoryTotal * (otherFreePercent - oldOhterPercent) / 100
+                mm.getOnHeapStorageMemoryPool.incrementPoolSize(canGrowBytes)
+                maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].incMaxHeapMemory(canGrowBytes)
+                otherBorrowed = true
+              } else {
+                val borrowedBytes = mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
+                  usableMemory * memoryFraction
+                val shouldShrinkBytes = (borrowedBytes -
+                  (otherMemoryTotal * otherFreePercent - otherBorrowThreshold) / 100).toLong
+                if (shouldShrinkBytes > 0) {
+                  // give back part of the borrowed memory and shrink the storage pool
+                  val freedSpace =
+                    mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(shouldShrinkBytes)
+                  mm.getOnHeapStorageMemoryPool.decrementPoolSize(freedSpace)
+                  maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].decMaxHeapMemory(freedSpace)
+
+                } else {
+                  // Need not shrink pool. Do nothing and continue monitoring
+                }
+              }
+            }
+          } catch {
+            case e =>
+              logWarning("Issue monitoring executor memory usage", e)
+          }
+          oldOhterPercent = otherFreePercent
+        }
+
+        val costTime = System.currentTimeMillis() - startTime
+        logInfo(s"startTime: $startTime otherFreeBytes: $otherFreeBytes costTime: $costTime " +
+          s"otherFreePercent: $otherFreePercent% maxHeapMemory: $maxHeapMemory")
+      }
+    }
+
+    memoryMonitor.scheduleAtFixedRate(memoryMonitorTask, 0, monitorInterval, TimeUnit.MILLISECONDS)
   }
 }
 

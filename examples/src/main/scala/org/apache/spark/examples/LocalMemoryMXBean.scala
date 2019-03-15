@@ -27,7 +27,9 @@ object LocalMemoryMXBean {
     println("Heap Memory Usage: " + memoryMXBean.getHeapMemoryUsage)
 
     var arr = new Array(10000)
-    var list = List.fill(1024)(10)
+    var list = List.fill(1024000)(10)
+    println("Heap Memory Usage: " + memoryMXBean.getHeapMemoryUsage)
+
     arr = null
     list = null
     println("Heap Memory Usage: " + memoryMXBean.getHeapMemoryUsage)

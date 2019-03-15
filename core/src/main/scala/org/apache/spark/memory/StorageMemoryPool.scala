@@ -30,7 +30,7 @@ import org.apache.spark.storage.memory.MemoryStore
  * @param lock a [[MemoryManager]] instance to synchronize on
  * @param memoryMode the type of memory tracked by this pool (on- or off-heap)
  */
-private[memory] class StorageMemoryPool(
+private[spark] class StorageMemoryPool(
     lock: Object,
     memoryMode: MemoryMode
   ) extends MemoryPool(lock) with Logging {

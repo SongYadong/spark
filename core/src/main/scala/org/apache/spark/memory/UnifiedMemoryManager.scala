@@ -46,7 +46,7 @@ import org.apache.spark.storage.BlockId
  */
 private[spark] class UnifiedMemoryManager private[memory] (
     conf: SparkConf,
-    val maxHeapMemory: Long,
+    var maxHeapMemory: Long,
     onHeapStorageRegionSize: Long,
     numCores: Int)
   extends MemoryManager(
@@ -62,6 +62,16 @@ private[spark] class UnifiedMemoryManager private[memory] (
   }
 
   assertInvariants()
+
+  def incMaxHeapMemory(delta: Long): Long = synchronized {
+    maxHeapMemory += delta
+    maxHeapMemory
+  }
+
+  def decMaxHeapMemory(delta: Long): Long = synchronized {
+    maxHeapMemory -= delta
+    maxHeapMemory
+  }
 
   override def maxOnHeapStorageMemory: Long = synchronized {
     maxHeapMemory - onHeapExecutionMemoryPool.memoryUsed
