@@ -558,10 +558,15 @@ private[spark] class Executor(
   private def startMemoryMonitor(): Unit = {
     val storageFraction: Double = conf.getDouble("spark.memory.storageFraction", 0.5)
     val memoryFraction: Double = conf.getDouble("spark.memory.fraction", 0.6)
-    // spark.memory.otherBorrowThreshold must > value which relative with runtimeMaxMemory
+    // spark.memory.otherBorrowThreshold has limit according to executor runtimeMaxMemory.
+    // = 1G, spark.memory.otherBorrowThreshold must > 0.64
+    // = 2G, spark.memory.otherBorrowThreshold must > 0.48
+    // = 3G, spark.memory.otherBorrowThreshold must > 0.41
+    // = 4G, spark.memory.otherBorrowThreshold must > 0.38
     val otherBorrowThreshold: Long =
       (conf.getDouble("spark.memory.otherBorrowThreshold", 0.3) * 100).toLong
     val monitorInterval: Long = conf.getLong("spark.memory.monitorInterval", 10000)
+    val initialDelay: Long = 20000L
     val reservedMemory: Long = 300 * 1024 * 1024L
     val memoryMXBean: MemoryMXBean = ManagementFactory.getMemoryMXBean()
     val mm = env.memoryManager
@@ -570,6 +575,7 @@ private[spark] class Executor(
     val otherMemoryTotal = (usableMemory * (1.0 - memoryFraction)).toLong + reservedMemory
     var oldOhterPercent = 0L
     var otherBorrowed = false
+    var firstRun = true
     var maxHeapMemory = (mm.getOnHeapStorageRegionSize / storageFraction).toLong
 
     val memoryMonitorTask = new Runnable() {
@@ -583,8 +589,14 @@ private[spark] class Executor(
 
         val otherFreeBytes = runtimeMaxMemory - memoryMXBean.getHeapMemoryUsage().getUsed() -
           mm.getOnHeapStorageFree - mm.getOnHeapExecutionFree
-
         val otherFreePercent = otherFreeBytes * 100 / otherMemoryTotal
+
+        if (firstRun) {
+          oldOhterPercent = otherFreePercent
+          firstRun = false
+          logInfo(s"startTime: $startTime first run. otherFreePercent: $otherFreePercent")
+          return
+        }
 
         if (otherFreePercent != oldOhterPercent) {
           try {
@@ -592,13 +604,15 @@ private[spark] class Executor(
             if (otherFreePercent < otherBorrowThreshold) {
               if (otherBorrowed) {
                 // give back all the borrowed memory and shrink the storage pool
-                val borrowedBytes = mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
-                  usableMemory * memoryFraction
+                val borrowedBytes = (mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
+                  usableMemory * memoryFraction).toLong
                 val freedSpace =
-                  mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(borrowedBytes.toLong)
+                  mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(borrowedBytes)
                 mm.getOnHeapStorageMemoryPool.decrementPoolSize(freedSpace)
                 maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].decMaxHeapMemory(freedSpace)
                 otherBorrowed = false
+                logInfo(s"startTime: $startTime borrowedBytes: $borrowedBytes " +
+                  s"freedSpace: $freedSpace")
               } else {
                 // Not borrowed. Do nothing and continue monitoring
               }
@@ -609,18 +623,20 @@ private[spark] class Executor(
                 mm.getOnHeapStorageMemoryPool.incrementPoolSize(canGrowBytes)
                 maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].incMaxHeapMemory(canGrowBytes)
                 otherBorrowed = true
+                logInfo(s"startTime: $startTime canGrowBytes: $canGrowBytes")
               } else {
-                val borrowedBytes = mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
-                  usableMemory * memoryFraction
-                val shouldShrinkBytes = (borrowedBytes -
-                  (otherMemoryTotal * otherFreePercent - otherBorrowThreshold) / 100).toLong
+                val borrowedBytes = (mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
+                  usableMemory * memoryFraction).toLong
+                val shouldShrinkBytes = borrowedBytes -
+                  (otherMemoryTotal * otherFreePercent - otherBorrowThreshold) / 100
                 if (shouldShrinkBytes > 0) {
                   // give back part of the borrowed memory and shrink the storage pool
                   val freedSpace =
                     mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(shouldShrinkBytes)
                   mm.getOnHeapStorageMemoryPool.decrementPoolSize(freedSpace)
                   maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].decMaxHeapMemory(freedSpace)
-
+                  logInfo(s"startTime: $startTime borrowedBytes: $borrowedBytes " +
+                    s"shouldShrinkBytes: $shouldShrinkBytes freedSpace: $freedSpace")
                 } else {
                   // Need not shrink pool. Do nothing and continue monitoring
                 }
@@ -630,16 +646,21 @@ private[spark] class Executor(
             case e =>
               logWarning("Issue monitoring executor memory usage", e)
           }
-          oldOhterPercent = otherFreePercent
         }
+        oldOhterPercent = otherFreePercent
+        var curBrrowed = (mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
+          usableMemory * memoryFraction).toLong
+        if (curBrrowed < 0) curBrrowed = 0
 
         val costTime = System.currentTimeMillis() - startTime
-        logInfo(s"startTime: $startTime otherFreeBytes: $otherFreeBytes costTime: $costTime " +
-          s"otherFreePercent: $otherFreePercent% maxHeapMemory: $maxHeapMemory")
+        logInfo(s"startTime: $startTime otherFree: $otherFreeBytes costTime: $costTime " +
+          s"otherFreePer: $otherFreePercent% maxHeapMem: $maxHeapMemory " +
+          s"curBrrowed: $curBrrowed")
       }
     }
 
-    memoryMonitor.scheduleAtFixedRate(memoryMonitorTask, 0, monitorInterval, TimeUnit.MILLISECONDS)
+    memoryMonitor.scheduleAtFixedRate(memoryMonitorTask, initialDelay, monitorInterval,
+      TimeUnit.MILLISECONDS)
   }
 }
 
