@@ -574,6 +574,8 @@ private[spark] class Executor(
     val runtimeMaxMemory: Long = reservedMemory + usableMemory
     val otherMemoryTotal = (usableMemory * (1.0 - memoryFraction)).toLong + reservedMemory
     var oldOhterPercent = 0L
+    var otherFreeBytes = 0L
+    var otherFreePercent = 0L
     var otherBorrowed = false
     var firstRun = true
     var maxHeapMemory = (mm.getOnHeapStorageRegionSize / storageFraction).toLong
@@ -587,75 +589,86 @@ private[spark] class Executor(
           mm.setReleasedFlag(false)
         }
 
-        val otherFreeBytes = runtimeMaxMemory - memoryMXBean.getHeapMemoryUsage().getUsed() -
-          mm.getOnHeapStorageFree - mm.getOnHeapExecutionFree
-        val otherFreePercent = otherFreeBytes * 100 / otherMemoryTotal
+        mm.synchronized {
+          otherFreeBytes = runtimeMaxMemory - memoryMXBean.getHeapMemoryUsage().getUsed() -
+            mm.getOnHeapStorageFree - mm.getOnHeapExecutionFree
+          otherFreePercent = otherFreeBytes * 100 / otherMemoryTotal
 
-        if (firstRun) {
-          oldOhterPercent = otherFreePercent
-          firstRun = false
-          logInfo(s"startTime: $startTime first run. otherFreePercent: $otherFreePercent")
-          return
-        }
+          if (firstRun) {
+            oldOhterPercent = otherFreePercent
+            firstRun = false
+            logInfo(s"startTime: $startTime first run. otherFreePercent: $otherFreePercent")
+            return
+          }
 
-        if (otherFreePercent != oldOhterPercent) {
-          try {
-            // when other free percent changed, do something; do nothing otherwise
-            if (otherFreePercent < otherBorrowThreshold) {
-              if (otherBorrowed) {
-                // give back all the borrowed memory and shrink the storage pool
-                val borrowedBytes = (mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
-                  usableMemory * memoryFraction).toLong
-                val freedSpace =
-                  mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(borrowedBytes)
-                mm.getOnHeapStorageMemoryPool.decrementPoolSize(freedSpace)
-                maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].decMaxHeapMemory(freedSpace)
-                otherBorrowed = false
-                logInfo(s"startTime: $startTime borrowedBytes: $borrowedBytes " +
-                  s"freedSpace: $freedSpace")
-              } else {
-                // Not borrowed. Do nothing and continue monitoring
-              }
-            } else {
-              if (otherFreePercent > oldOhterPercent) {
-                // grow the storage pool
-                val canGrowBytes = otherMemoryTotal * (otherFreePercent - oldOhterPercent) / 100
-                mm.getOnHeapStorageMemoryPool.incrementPoolSize(canGrowBytes)
-                maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].incMaxHeapMemory(canGrowBytes)
-                otherBorrowed = true
-                logInfo(s"startTime: $startTime canGrowBytes: $canGrowBytes")
-              } else {
-                val borrowedBytes = (mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
-                  usableMemory * memoryFraction).toLong
-                val shouldShrinkBytes = borrowedBytes -
-                  (otherMemoryTotal * otherFreePercent - otherBorrowThreshold) / 100
-                if (shouldShrinkBytes > 0) {
-                  // give back part of the borrowed memory and shrink the storage pool
+          if (otherFreePercent != oldOhterPercent) {
+            try {
+              // when other free percent changed, do something; do nothing otherwise
+              if (otherFreePercent < otherBorrowThreshold) {
+                if (otherBorrowed) {
+                  // give back all the borrowed memory and shrink the storage pool
+                  val sUsed = mm.getOnHeapStorageUsed
+                  val eUsed = mm.getOnHeapExecutionUsed
+                  val borrowedBytes = (sUsed + eUsed - usableMemory * memoryFraction).toLong
                   val freedSpace =
-                    mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(shouldShrinkBytes)
+                    mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(borrowedBytes)
                   mm.getOnHeapStorageMemoryPool.decrementPoolSize(freedSpace)
+                  val sPoolSize = mm.getOnHeapStorageMemoryPool.poolSize
                   maxHeapMemory = mm.asInstanceOf[UnifiedMemoryManager].decMaxHeapMemory(freedSpace)
-                  logInfo(s"startTime: $startTime borrowedBytes: $borrowedBytes " +
-                    s"shouldShrinkBytes: $shouldShrinkBytes freedSpace: $freedSpace")
+                  otherBorrowed = false
+                  logInfo(s"startTime: $startTime borrowed: $borrowedBytes " +
+                    s"freedSpace: $freedSpace sPoolSize: $sPoolSize sUsed: $sUsed eUsed: $eUsed")
                 } else {
-                  // Need not shrink pool. Do nothing and continue monitoring
+                  // Not borrowed. Do nothing and continue monitoring
+                }
+              } else {
+                if (otherFreePercent > oldOhterPercent) {
+                  // grow the storage pool
+                  val canGrowBytes = otherMemoryTotal * (otherFreePercent - oldOhterPercent) / 100
+                  mm.getOnHeapStorageMemoryPool.incrementPoolSize(canGrowBytes)
+                  maxHeapMemory =
+                    mm.asInstanceOf[UnifiedMemoryManager].incMaxHeapMemory(canGrowBytes)
+                  otherBorrowed = true
+                  logInfo(s"startTime: $startTime canGrowBytes: $canGrowBytes")
+                } else {
+                  val sUsed = mm.getOnHeapStorageUsed
+                  val eUsed = mm.getOnHeapExecutionUsed
+                  val borrowedBytes = (sUsed + eUsed - usableMemory * memoryFraction).toLong
+                  val shouldShrinkBytes = borrowedBytes -
+                    (otherMemoryTotal * otherFreePercent - otherBorrowThreshold) / 100
+                  if (shouldShrinkBytes > 0) {
+                    // give back part of the borrowed memory and shrink the storage pool
+                    val freedSpace =
+                      mm.getOnHeapStorageMemoryPool.freeSpaceToShrinkPool(shouldShrinkBytes)
+                    mm.getOnHeapStorageMemoryPool.decrementPoolSize(freedSpace)
+                    val sPoolSize = mm.getOnHeapStorageMemoryPool.poolSize
+                    maxHeapMemory =
+                      mm.asInstanceOf[UnifiedMemoryManager].decMaxHeapMemory(freedSpace)
+                    logInfo(s"startTime: $startTime borrowed: $borrowedBytes " +
+                      s"shouldShrinkBytes: $shouldShrinkBytes freedSpace: $freedSpace " +
+                      s"sPoolSize: $sPoolSize sUsed: $sUsed eUsed: $eUsed")
+                  } else {
+                    // Need not shrink pool. Do nothing and continue monitoring
+                  }
                 }
               }
+            } catch {
+              case e =>
+                logWarning("Issue monitoring executor memory usage", e)
             }
-          } catch {
-            case e =>
-              logWarning("Issue monitoring executor memory usage", e)
           }
         }
         oldOhterPercent = otherFreePercent
-        var curBrrowed = (mm.getOnHeapStorageUsed + mm.getOnHeapExecutionUsed -
-          usableMemory * memoryFraction).toLong
-        if (curBrrowed < 0) curBrrowed = 0
+        val sUsed = mm.getOnHeapStorageUsed
+        val eUsed = mm.getOnHeapExecutionUsed
+        var curBorrowed = (sUsed + eUsed - usableMemory * memoryFraction).toLong
+        if (curBorrowed < 0) curBorrowed = 0
+        val sPoolSize = mm.getOnHeapStorageMemoryPool.poolSize
 
         val costTime = System.currentTimeMillis() - startTime
         logInfo(s"startTime: $startTime otherFree: $otherFreeBytes costTime: $costTime " +
           s"otherFreePer: $otherFreePercent% maxHeapMem: $maxHeapMemory " +
-          s"curBrrowed: $curBrrowed")
+          s"curBrrowed: $curBorrowed sPoolSize: $sPoolSize sUsed: $sUsed eUsed: $eUsed")
       }
     }
 
